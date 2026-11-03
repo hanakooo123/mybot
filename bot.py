@@ -1,44 +1,51 @@
 import os
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, F, types
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from groq import Groq
 import yt_dlp
+from aiohttp import web
 
 # ==========================================
 # 1. НАСТРОЙКА И КОНФИГУРАЦИЯ
 # ==========================================
 
-# Вставьте сюда ваш токен от @BotFather
 BOT_TOKEN = "9005836465:AAG9UDgflEjuxs9PiMI8gBQutb-8kFCAx_U"
-
-# Вставьте сюда ваш бесплатный API ключ от Groq (начинается с gsk_...)
 GROQ_API_KEY = "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"
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота и клиента Groq
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Папка для временных аудио- и видеофайлов
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# ==========================================
+# 2. МИКРО ВЕБ-СЕРВЕР ДЛЯ RENDER (Health Check)
+# ==========================================
+
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"Веб-сервер запущен на порту {port}")
 
 # ==========================================
-# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==========================================
 
 def transcribe_audio_file(file_path: str) -> str:
-    """
-    Отправляет аудио в бесплатный API Groq (модель whisper-large-v3).
-    Работает мгновенно и не загружает память сервера.
-    """
     try:
         with open(file_path, "rb") as file:
             transcription = groq_client.audio.transcriptions.create(
@@ -52,9 +59,6 @@ def transcribe_audio_file(file_path: str) -> str:
         return ""
 
 def download_media_from_url(url: str, output_path: str) -> bool:
-    """
-    Скачивает аудио из ссылки (YouTube, VK, TikTok и т.д.) с помощью yt-dlp.
-    """
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_path,
@@ -74,9 +78,8 @@ def download_media_from_url(url: str, output_path: str) -> bool:
         logging.error(f"Ошибка при скачивании по ссылке: {e}")
         return False
 
-
 # ==========================================
-# 3. ОБРАБОТЧИКИ КОМАНД И СООБЩЕНИЙ
+# 4. ОБРАБОТЧИКИ СООБЩЕНИЙ
 # ==========================================
 
 @dp.message(CommandStart())
@@ -91,7 +94,6 @@ async def cmd_start(message: Message):
         "Просто отправь мне файл, голосовое или ссылку!"
     )
     await message.answer(welcome_text, parse_mode="Markdown")
-
 
 @dp.message(F.voice | F.video_note | F.audio | F.video | F.document)
 async def handle_media_messages(message: Message):
@@ -143,7 +145,6 @@ async def handle_media_messages(message: Message):
         if os.path.exists(local_path):
             os.remove(local_path)
 
-
 @dp.message(F.text.startswith("http://") | F.text.startswith("https://"))
 async def handle_url_message(message: Message):
     url = message.text.strip()
@@ -180,13 +181,13 @@ async def handle_url_message(message: Message):
         if os.path.exists(expected_mp3):
             os.remove(expected_mp3)
 
-
 # ==========================================
-# 4. ЗАПУСК БОТА
+# 5. ЗАПУСК БОТА И ВЕБ-СЕРВЕРА
 # ==========================================
 
 async def main():
-    print("Бот успешно запущен через Groq API!")
+    await start_web_server()
+    print("Бот и веб-сервер успешно запущены!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
