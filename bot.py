@@ -12,8 +12,8 @@ from aiohttp import web
 # 1. НАСТРОЙКА И КОНФИГУРАЦИЯ
 # ==========================================
 
-BOT_TOKEN = "9005836465:AAG9UDgflEjuxs9PiMI8gBQutb-8kFCAx_U"
-GROQ_API_KEY = "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"
+BOT_TOKEN = 9005836465:AAG9UDgflEjuxs9PiMI8gBQutb-8kFCAx_U
+GROQ_API_KEY = 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
 
 logging.basicConfig(level=logging.INFO)
 
@@ -25,7 +25,7 @@ DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # ==========================================
-# 2. МИКРО ВЕБ-СЕРВЕР ДЛЯ RENDER (Health Check)
+# 2. МИКРО ВЕБ-СЕРВЕР ДЛЯ RENDER
 # ==========================================
 
 async def handle_ping(request):
@@ -69,13 +69,14 @@ def download_media_from_url(url: str, output_path: str) -> bool:
         }],
         'quiet': True,
         'no_warnings': True,
+        'socket_timeout': 30,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         return True
     except Exception as e:
-        logging.error(f"Ошибка при скачивании по ссылке: {e}")
+        logging.error(f"Ошибка при скачивании по ссылке {url}: {e}")
         return False
 
 # ==========================================
@@ -154,13 +155,17 @@ async def handle_url_message(message: Message):
     expected_mp3 = f"{base_path}.mp3"
 
     try:
-        success = await asyncio.to_thread(download_media_from_url, url, base_path)
+        # Устанавливаем жесткий таймаут 60 секунд на скачивание
+        success = await asyncio.wait_for(
+            asyncio.to_thread(download_media_from_url, url, base_path),
+            timeout=60.0
+        )
 
         if not success or not os.path.exists(expected_mp3):
-            await status_msg.edit_text("❌ Не удалось скачать аудио по этой ссылке.")
+            await status_msg.edit_text("❌ Не удалось скачать аудио по этой ссылке. Убедитесь, что видео публично доступно.")
             return
 
-        await status_msg.edit_text("⚡️ Расшифровываю аудио с видео... Пожалуйста, подождите.")
+        await status_msg.edit_text("⚡️ Расшифровываю аудио... Пожалуйста, подождите.")
 
         text = await asyncio.to_thread(transcribe_audio_file, expected_mp3)
 
@@ -172,8 +177,11 @@ async def handle_url_message(message: Message):
             else:
                 await status_msg.edit_text(f"📝 **Результат расшифровки по ссылке:**\n\n{text}", parse_mode="Markdown")
         else:
-            await status_msg.edit_text("⚠️ Не удалось распознать речь в этом видео.")
+            await status_msg.edit_text("⚠️ Не удалось распознать речь в этом медиа.")
 
+    except asyncio.TimeoutError:
+        logging.error("Таймаут скачивания видео по ссылке")
+        await status_msg.edit_text("⏱ Скачивание заняло слишком много времени и было прервано.")
     except Exception as e:
         logging.error(f"Ошибка обработки ссылки: {e}")
         await status_msg.edit_text("❌ Произошла ошибка при обработке ссылки.")
