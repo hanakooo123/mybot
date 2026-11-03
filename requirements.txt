@@ -1,1 +1,3 @@
-
+aiogram
+groq
+yt-dlp
